@@ -543,7 +543,22 @@ static const struct dmi_system_id __devinitconst ehci_dmi_nohandoff_table[] = {
 		/*  Pegatron Lucid (Ordissimo AIRIS) */
 		.matches = {
 			DMI_MATCH(DMI_BOARD_NAME, "M11JB"),
-			DMI_MATCH(DMI_BIOS_VERSION, "Lucid-GE-133"),
+			DMI_MATCH(DMI_BIOS_VERSION, "Lucid-"),
+		},
+	},
+	{
+		/*  Pegatron Lucid (Ordissimo) */
+		.matches = {
+			DMI_MATCH(DMI_BOARD_NAME, "Ordissimo"),
+			DMI_MATCH(DMI_BIOS_VERSION, "Lucid-"),
+		},
+	},
+	{
+		/* HASEE E200 */
+		.matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "HASEE"),
+			DMI_MATCH(DMI_BOARD_NAME, "E210"),
+			DMI_MATCH(DMI_BIOS_VERSION, "6.00"),
 		},
 	},
 	{ }
@@ -555,9 +570,14 @@ static void __devinit ehci_bios_handoff(struct pci_dev *pdev,
 {
 	int try_handoff = 1, tried_handoff = 0;
 
-	/* The Pegatron Lucid tablet sporadically waits for 98 seconds trying
-	 * the handoff on its unused controller.  Skip it. */
-	if (pdev->vendor == 0x8086 && pdev->device == 0x283a) {
+	/*
+	 * The Pegatron Lucid tablet sporadically waits for 98 seconds trying
+	 * the handoff on its unused controller.  Skip it.
+	 *
+	 * The HASEE E200 hangs when the semaphore is set (bugzilla #77021).
+	 */
+	if (pdev->vendor == 0x8086 && (pdev->device == 0x283a ||
+			pdev->device == 0x27cc)) {
 		if (dmi_check_system(ehci_dmi_nohandoff_table))
 			try_handoff = 0;
 	}
@@ -714,6 +734,7 @@ static int handshake(void __iomem *ptr, u32 mask, u32 done,
 }
 
 #define PCI_DEVICE_ID_INTEL_LYNX_POINT_XHCI	0x8C31
+#define PCI_DEVICE_ID_INTEL_LYNX_POINT_LP_XHCI	0x9C31
 
 bool usb_is_intel_ppt_switchable_xhci(struct pci_dev *pdev)
 {
@@ -727,7 +748,8 @@ bool usb_is_intel_lpt_switchable_xhci(struct pci_dev *pdev)
 {
 	return pdev->class == PCI_CLASS_SERIAL_USB_XHCI &&
 		pdev->vendor == PCI_VENDOR_ID_INTEL &&
-		pdev->device == PCI_DEVICE_ID_INTEL_LYNX_POINT_XHCI;
+		(pdev->device == PCI_DEVICE_ID_INTEL_LYNX_POINT_XHCI ||
+		 pdev->device == PCI_DEVICE_ID_INTEL_LYNX_POINT_LP_XHCI);
 }
 
 bool usb_is_intel_switchable_xhci(struct pci_dev *pdev)
@@ -769,6 +791,7 @@ void usb_enable_xhci_ports(struct pci_dev *xhci_pdev)
 				"defaulting to EHCI.\n");
 		dev_warn(&xhci_pdev->dev,
 				"USB 3.0 devices will work at USB 2.0 speeds.\n");
+		usb_disable_xhci_ports(xhci_pdev);
 		return;
 	}
 
@@ -799,6 +822,13 @@ void usb_enable_xhci_ports(struct pci_dev *xhci_pdev)
 			"to xHCI: 0x%x\n", ports_available);
 }
 EXPORT_SYMBOL_GPL(usb_enable_xhci_ports);
+
+void usb_disable_xhci_ports(struct pci_dev *xhci_pdev)
+{
+	pci_write_config_dword(xhci_pdev, USB_INTEL_USB3_PSSEN, 0x0);
+	pci_write_config_dword(xhci_pdev, USB_INTEL_XUSB2PR, 0x0);
+}
+EXPORT_SYMBOL_GPL(usb_disable_xhci_ports);
 
 /**
  * PCI Quirks for xHCI.
